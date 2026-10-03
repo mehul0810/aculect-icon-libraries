@@ -3,9 +3,12 @@ import hashlib
 import json
 import shutil
 import stat
+import struct
+import subprocess
 import tempfile
 import unittest
 import zipfile
+from unittest import mock
 from pathlib import Path
 
 sys_path = Path(__file__).resolve().parents[1] / "tools"
@@ -31,16 +34,16 @@ class PackageTests(unittest.TestCase):
         self.temp.cleanup()
 
     def build(self):
-        return iconlib.build(FIXTURE / "manifest.json", FIXTURE, self.archive, self.descriptor)
+        return iconlib.build(FIXTURE / "manifest.json", FIXTURE, self.archive, self.descriptor, allow_test_fixture=True)
 
-    def repack(self, members):
+    def repack(self, members, compression=zipfile.ZIP_STORED):
         with zipfile.ZipFile(self.archive, "w") as zf:
             for name, content, mode in members:
                 info = zipfile.ZipInfo(name, (2020, 1, 1, 0, 0, 0))
                 if mode is not None:
                     info.create_system = 3
                     info.external_attr = mode << 16
-                zf.writestr(info, content)
+                zf.writestr(info, content, compress_type=compression)
 
     def fixture_members(self):
         return [
@@ -60,12 +63,12 @@ class PackageTests(unittest.TestCase):
 
     def test_caller_supplied_trust_descriptor_required(self):
         self.build()
-        iconlib.validate_trusted(self.archive, self.descriptor)
+        iconlib.validate_trusted(self.archive, self.descriptor, allow_test_fixture=True)
         trusted = json.loads(self.descriptor.read_text())
         trusted["package_sha256"] = "0" * 64
         self.descriptor.write_text(json.dumps(trusted))
         with self.assertRaisesRegex(iconlib.PackageError, "trusted descriptor mismatch"):
-            iconlib.validate_trusted(self.archive, self.descriptor)
+            iconlib.validate_trusted(self.archive, self.descriptor, allow_test_fixture=True)
 
     def test_rejects_traversal_and_case_collision(self):
         members = self.fixture_members()
@@ -178,7 +181,7 @@ class PackageTests(unittest.TestCase):
             "icons/second.svg": (FIXTURE / "icons/test-square.svg").read_bytes(),
         }
         with self.assertRaisesRegex(iconlib.PackageError, "duplicate core_icon_name"):
-            iconlib.validate_manifest(manifest, member_data)
+            iconlib.validate_manifest(manifest, member_data, allow_test_fixture=True)
 
     def test_failed_build_does_not_replace_existing_output_or_input(self):
         self.archive.write_bytes(b"preserve existing output")
@@ -190,7 +193,7 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(before, self.archive.read_bytes())
         icon = FIXTURE / "icons" / "test-square.svg"
         with self.assertRaisesRegex(iconlib.PackageError, "overwrite inputs"):
-            iconlib.build(FIXTURE / "manifest.json", FIXTURE, icon, self.descriptor)
+            iconlib.build(FIXTURE / "manifest.json", FIXTURE, icon, self.descriptor, allow_test_fixture=True)
 
     def test_manifest_capacity_is_larger_than_svg_capacity(self):
         source = self.root / "large-manifest-source"
@@ -198,7 +201,7 @@ class PackageTests(unittest.TestCase):
         manifest = json.loads((source / "manifest.json").read_text())
         manifest["metadata_padding"] = "x" * (2 * 1024 * 1024 + 1)
         (source / "manifest.json").write_text(json.dumps(manifest))
-        iconlib.build(source / "manifest.json", source, self.archive, self.descriptor)
+        iconlib.build(source / "manifest.json", source, self.archive, self.descriptor, allow_test_fixture=True)
         self.assertGreater(self.archive.stat().st_size, 0)
 
     def test_bounded_read_stops_at_limit(self):
@@ -223,6 +226,186 @@ class PackageTests(unittest.TestCase):
         manifest["upstream"]["revision"] = "main"
         with self.assertRaisesRegex(iconlib.PackageError, "immutable"):
             iconlib.validate_manifest(manifest, member_data)
+
+    def test_synthetic_provenance_requires_explicit_test_mode(self):
+        with self.assertRaisesRegex(iconlib.PackageError, "immutable"):
+            iconlib.build(FIXTURE / "manifest.json", FIXTURE, self.archive, self.descriptor)
+        self.assertFalse(self.archive.exists())
+        self.build()
+        trusted = json.loads(self.descriptor.read_text())
+        trusted["test_fixture"] = True
+        self.descriptor.write_text(json.dumps(trusted))
+        for validate in (
+            lambda: iconlib.read_archive(self.archive),
+            lambda: iconlib.descriptor_for(self.archive),
+            lambda: iconlib.validate_trusted(self.archive, self.descriptor),
+        ):
+            with self.assertRaisesRegex(iconlib.PackageError, "immutable"):
+                validate()
+        iconlib.validate_trusted(self.archive, self.descriptor, allow_test_fixture=True)
+
+    def test_fixture_mode_does_not_allow_other_moving_provenance(self):
+        manifest = json.loads((FIXTURE / "manifest.json").read_text())
+        data = {name: content for name, content, _ in self.fixture_members()[1:]}
+        for field in ("upstream", "conversion"):
+            with self.subTest(field=field):
+                modified = json.loads(json.dumps(manifest))
+                modified[field]["revision"] = "main"
+                with self.assertRaisesRegex(iconlib.PackageError, "immutable"):
+                    iconlib.validate_manifest(modified, data, allow_test_fixture=True)
+        manifest["library_id"] = "other-library"
+        with self.assertRaisesRegex(iconlib.PackageError, "immutable"):
+            iconlib.validate_manifest(manifest, data, allow_test_fixture=True)
+
+    def test_immutable_provenance_is_accepted_without_fixture_mode(self):
+        manifest = json.loads((FIXTURE / "manifest.json").read_text())
+        manifest.pop("test_fixture")
+        manifest["upstream"]["revision"] = "a" * 40
+        manifest["conversion"]["revision"] = "b" * 64
+        manifest_path = self.root / "manifest.json"
+        manifest_path.write_text(json.dumps(manifest))
+        iconlib.build(manifest_path, FIXTURE, self.archive, self.descriptor)
+        iconlib.validate_trusted(self.archive, self.descriptor)
+
+    def test_valid_path_commands_and_parameter_forms(self):
+        paths = [
+            "M0 0", "m0,0 1,1 2-3z", "M.6.5L1e2-2E-1Z",
+            "M0 0H1 2h-1V3 4v-2L5 6l-1-1z",
+            "M0 0C1 2 3 4 5 6 7 8 9 10 11 12c1 2 3 4 5 6S1 2 3 4s1 2 3 4",
+            "M0 0Q1 2 3 4q1 2 3 4T5 6t-1-2",
+            "M0 0A10 20 30 0 1 40 50a1,2,-30,10-4-5Z",
+            "M0 0A1 2 0 0110 20 3 4 5 0 0 6 7zM1 2L3 4",
+        ]
+        for path in paths:
+            with self.subTest(path=path):
+                iconlib.validate_svg(f'<svg xmlns="http://www.w3.org/2000/svg"><path d="{path}"/></svg>'.encode())
+
+    def test_malformed_path_geometry_is_rejected(self):
+        paths = [
+            "", "   ", "definitely not SVG path data", "L0 0", "M", "M0", "M0 0L",
+            "M0 0L1", "M0 0C1 2 3 4 5", "M0 0Q1 2 3", "M0 0S1 2 3",
+            "M0 0T1", "M0 0A1 2 3 0 1 4", "M0 0A1 2 3 2 1 4 5",
+            "M0 0A1 2 3 0 -1 4 5", "M0 0A-1 2 3 0 1 4 5",
+            "M0 0A1 2 3.0.0 1 4 5", "M0 0A1 2 3 0.0 1 4 5",
+            "M0 0R1 2", "M0 0Z1 2", "M,0 0", "M0,,0", "M0 0,",
+            "M0 0,L1 2", "M0 0L1e 2", "M0 0L1e999 2", "M0 0LNaN 2",
+            "M0 0L1;2", "M0 0L1 2 garbage", "M0 0L1\u00a02", "M0 0\u017f1 2 3 4",
+        ]
+        for path in paths:
+            with self.subTest(path=path):
+                with self.assertRaises(iconlib.PackageError):
+                    iconlib.validate_svg(f'<svg xmlns="http://www.w3.org/2000/svg"><path d="{path}"/></svg>'.encode())
+
+    def test_malformed_path_is_rejected_by_build_and_archive_validation(self):
+        source = self.root / "bad-geometry"
+        shutil.copytree(FIXTURE, source)
+        payload = b'<svg xmlns="http://www.w3.org/2000/svg"><path d="definitely not SVG path data"/></svg>'
+        (source / "icons/test-square.svg").write_bytes(payload)
+        manifest = json.loads((source / "manifest.json").read_text())
+        manifest["icons"][0]["sha256"] = digest(payload)
+        manifest_bytes = json.dumps(manifest).encode()
+        (source / "manifest.json").write_bytes(manifest_bytes)
+        with self.assertRaisesRegex(iconlib.PackageError, "SVG path"):
+            iconlib.build(source / "manifest.json", source, self.archive, self.descriptor, allow_test_fixture=True)
+        members = self.fixture_members()
+        members[0] = ("manifest.json", manifest_bytes, members[0][2])
+        members[2] = ("icons/test-square.svg", payload, members[2][2])
+        self.repack(members)
+        with self.assertRaisesRegex(iconlib.PackageError, "SVG path"):
+            iconlib.read_archive(self.archive, allow_test_fixture=True)
+
+    def test_second_output_failure_restores_existing_or_absent_outputs(self):
+        replace = iconlib.os.replace
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                if existing:
+                    self.archive.write_bytes(b"old archive")
+                    self.descriptor.write_bytes(b"old descriptor")
+
+                def fail_descriptor(source, destination):
+                    if destination == self.descriptor:
+                        raise OSError("injected descriptor publication failure")
+                    return replace(source, destination)
+
+                with mock.patch.object(iconlib.os, "replace", side_effect=fail_descriptor):
+                    with self.assertRaisesRegex(iconlib.PackageError, "previous outputs restored"):
+                        self.build()
+                if existing:
+                    self.assertEqual(self.archive.read_bytes(), b"old archive")
+                    self.assertEqual(self.descriptor.read_bytes(), b"old descriptor")
+                else:
+                    self.assertFalse(self.archive.exists())
+                    self.assertFalse(self.descriptor.exists())
+                self.assertFalse(list(self.root.glob(".iconlib-*")))
+
+    def test_rollback_failure_reports_and_retains_recovery_backups(self):
+        self.archive.write_bytes(b"old archive")
+        self.descriptor.write_bytes(b"old descriptor")
+        replace = iconlib.os.replace
+
+        def fail_publication_and_rollback(source, destination):
+            if destination == self.descriptor or source.name.startswith(".iconlib-backup-"):
+                raise OSError("injected publication/rollback failure")
+            return replace(source, destination)
+
+        with mock.patch.object(iconlib.os, "replace", side_effect=fail_publication_and_rollback):
+            with self.assertRaisesRegex(iconlib.PackageError, "rollback failed.*retained backups") as caught:
+                self.build()
+        backups = list(self.root.glob(".iconlib-backup-*"))
+        self.assertEqual({p.read_bytes() for p in backups}, {b"old archive", b"old descriptor"})
+        for backup in backups:
+            self.assertIn(str(backup), str(caught.exception))
+        self.assertEqual(self.descriptor.read_bytes(), b"old descriptor")
+
+    def test_directory_destination_is_rejected_before_publication(self):
+        for directory in (self.archive, self.descriptor):
+            with self.subTest(directory=directory.name):
+                other = self.descriptor if directory == self.archive else self.archive
+                directory.mkdir()
+                other.write_bytes(b"preserve output")
+                with self.assertRaisesRegex(iconlib.PackageError, "output destination"):
+                    self.build()
+                self.assertTrue(directory.is_dir())
+                self.assertEqual(other.read_bytes(), b"preserve output")
+                self.assertFalse(list(self.root.glob(".iconlib-*")))
+                directory.rmdir()
+                other.unlink()
+
+    def test_corrupt_crc_and_deflate_members_fail_cleanly(self):
+        for compression in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            with self.subTest(compression=compression):
+                self.build()
+                self.repack(self.fixture_members(), compression=compression)
+                with zipfile.ZipFile(self.archive) as zf:
+                    info = zf.getinfo("icons/test-square.svg")
+                data = bytearray(self.archive.read_bytes())
+                name_length, extra_length = struct.unpack_from("<HH", data, info.header_offset + 26)
+                offset = info.header_offset + 30 + name_length + extra_length
+                if compression == zipfile.ZIP_DEFLATED:
+                    data[offset] = (data[offset] & 0xf8) | 0x07  # Reserved DEFLATE block type.
+                else:
+                    data[offset] ^= 1
+                self.archive.write_bytes(data)
+                with self.assertRaisesRegex(iconlib.PackageError, "invalid ZIP member data"):
+                    iconlib.read_archive(self.archive, allow_test_fixture=True)
+                result = subprocess.run([sys.executable, str(sys_path / "iconlib.py"), "validate", str(self.archive), "--trusted-descriptor", str(self.descriptor), "--allow-test-fixture"], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, "")
+                self.assertTrue(result.stderr.startswith("error: invalid ZIP member data:"))
+                self.assertNotIn("Traceback", result.stderr)
+
+    def test_cli_fixture_opt_in_is_required_for_build_and_validate(self):
+        commands = [
+            ["build", str(FIXTURE / "manifest.json"), str(FIXTURE), str(self.archive), str(self.descriptor)],
+            ["validate", str(self.archive), "--trusted-descriptor", str(self.descriptor)],
+        ]
+        for command in commands:
+            result = subprocess.run([sys.executable, str(sys_path / "iconlib.py"), *command], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("revision must be immutable", result.stderr)
+            result = subprocess.run([sys.executable, str(sys_path / "iconlib.py"), *command, "--allow-test-fixture"], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["library_id"], "synthetic-test")
 
 
 if __name__ == "__main__":

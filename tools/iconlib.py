@@ -5,12 +5,15 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
+import shutil
 import stat
 import sys
 import tempfile
 import zipfile
+import zlib
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -27,6 +30,8 @@ HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 REVISION_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
 SVG_NS = "http://www.w3.org/2000/svg"
+PATH_NUMBER_RE = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
+PATH_ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "T": 2, "A": 7, "Z": 0}
 
 
 class PackageError(ValueError):
@@ -87,6 +92,58 @@ def validate_path(value, prefix):
     return value
 
 
+def validate_path_data(value):
+    """Check bounded SVG 1.1 path syntax, not rendering or sanitizer semantics."""
+    if not isinstance(value, str) or not value.strip() or len(value) > MAX_SVG:
+        fail("invalid SVG path data")
+    pos, first_command = 0, True
+
+    def skip_space(offset):
+        while offset < len(value) and value[offset] in " \t\r\n":
+            offset += 1
+        return offset
+
+    while True:
+        pos = skip_space(pos)
+        if pos == len(value):
+            return
+        letter = value[pos]
+        command = letter.upper()
+        if letter not in "MmLlHhVvCcSsQqTtAaZz" or first_command and command != "M":
+            fail("invalid SVG path command; path must start with moveto")
+        first_command = False
+        pos += 1
+        arity = PATH_ARITY[command]
+        if not arity:
+            continue
+        repeated = False
+        while True:
+            for index in range(arity):
+                start = pos
+                pos = skip_space(pos)
+                if pos < len(value) and value[pos] == ",":
+                    if index == 0 and not repeated:
+                        fail("invalid SVG path separator")
+                    pos = skip_space(pos + 1)
+                if command == "A" and index == 3 and start == pos:
+                    fail("SVG arc rotation and flag require a separator")
+                if command == "A" and index in (3, 4):
+                    if pos == len(value) or value[pos] not in "01":
+                        fail("SVG arc flags must be 0 or 1")
+                    pos += 1
+                else:
+                    number = PATH_NUMBER_RE.match(value, pos)
+                    if not number or not math.isfinite(float(number.group())):
+                        fail("invalid or incomplete SVG path parameters")
+                    if command == "A" and index in (0, 1) and number.group()[0] in "+-":
+                        fail("SVG arc radii must be unsigned")
+                    pos = number.end()
+            pos = skip_space(pos)
+            if pos == len(value) or value[pos].isalpha():
+                break
+            repeated = True
+
+
 def validate_svg(data):
     if len(data) > MAX_SVG:
         fail("SVG exceeds byte limit")
@@ -141,13 +198,14 @@ def validate_svg(data):
             fail("unsupported SVG element or attribute")
         if "d" not in elem.attrib or elem.attrib.get("fill-rule", "nonzero") not in ("nonzero", "evenodd"):
             fail("path requires geometry and a supported fill-rule")
+        validate_path_data(elem.attrib["d"])
         if list(elem) or elem.text and elem.text.strip() or elem.tail and elem.tail.strip():
             fail("SVG paths cannot contain nested or textual content")
     if not count or root.text and root.text.strip() or root.tail and root.tail.strip():
         fail("SVG must contain path geometry only")
 
 
-def validate_manifest(manifest, member_data):
+def validate_manifest(manifest, member_data, *, allow_test_fixture=False):
     if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
         fail("unsupported manifest schema")
     for field in ("library_id", "style_id"):
@@ -159,7 +217,7 @@ def validate_manifest(manifest, member_data):
         if not isinstance(record, dict) or not all(isinstance(record.get(k), str) and record[k] for k in ("name" if field == "upstream" else "tool", "revision")):
             fail(f"invalid {field} identity")
         rev = record["revision"]
-        synthetic = manifest.get("test_fixture") is True and manifest.get("library_id") == "synthetic-test"
+        synthetic = allow_test_fixture and manifest.get("test_fixture") is True and manifest.get("library_id") == "synthetic-test"
         if not (synthetic and rev.startswith("synthetic-test:")) and not REVISION_RE.fullmatch(rev):
             fail(f"{field} revision must be immutable")
     license_record = manifest.get("license")
@@ -214,7 +272,7 @@ def validate_manifest(manifest, member_data):
         fail("unexpected or undeclared package member")
 
 
-def read_archive(path):
+def read_archive(path, *, allow_test_fixture=False):
     if path.stat().st_size > MAX_ARCHIVE:
         fail("archive exceeds compressed byte limit")
     try:
@@ -261,8 +319,11 @@ def read_archive(path):
                 member_limit = MAX_LICENSE
             else:
                 member_limit = MAX_SVG
-            with archive.open(info) as stream:
-                raw = bounded_read(stream, member_limit)
+            try:
+                with archive.open(info) as stream:
+                    raw = bounded_read(stream, member_limit)
+            except (zipfile.BadZipFile, zlib.error, EOFError, OSError, NotImplementedError) as exc:
+                fail(f"invalid ZIP member data: {exc}")
             if len(raw) != info.file_size:
                 fail("ZIP entry size mismatch")
             data[info.filename] = raw
@@ -272,12 +333,12 @@ def read_archive(path):
     if len(manifest_bytes) > MAX_MANIFEST:
         fail("manifest exceeds byte limit")
     manifest = parse_json(manifest_bytes, "manifest.json")
-    validate_manifest(manifest, data)
+    validate_manifest(manifest, data, allow_test_fixture=allow_test_fixture)
     return manifest_bytes, manifest
 
 
-def descriptor_for(path):
-    manifest_bytes, manifest = read_archive(path)
+def descriptor_for(path, *, allow_test_fixture=False):
+    manifest_bytes, manifest = read_archive(path, allow_test_fixture=allow_test_fixture)
     return {
         "schema_version": 1,
         "library_id": manifest["library_id"],
@@ -289,13 +350,13 @@ def descriptor_for(path):
     }
 
 
-def validate_trusted(path, descriptor_path):
+def validate_trusted(path, descriptor_path, *, allow_test_fixture=False):
     with descriptor_path.open("rb") as stream:
         descriptor_bytes = bounded_read(stream, MAX_DESCRIPTOR)
     trusted = parse_json(descriptor_bytes, "trusted descriptor")
     if not isinstance(trusted, dict) or trusted.get("schema_version") != 1:
         fail("invalid trusted descriptor")
-    actual = descriptor_for(path)
+    actual = descriptor_for(path, allow_test_fixture=allow_test_fixture)
     for key in ("package_sha256", "manifest_sha256", "package_bytes", "library_id", "style_id", "release_version"):
         if trusted.get(key) != actual[key]:
             fail(f"trusted descriptor mismatch: {key}")
@@ -329,7 +390,47 @@ def source_member(root, member):
     return resolved
 
 
-def build(manifest_path, source_dir, archive_path, descriptor_path):
+def preflight_output(path):
+    if path.is_symlink() or path.exists() and not path.is_file():
+        fail("output destination must be a regular non-symlink file or absent")
+
+
+def publish_outputs(outputs):
+    """Roll back handled publication failures; the pair is not crash-atomic."""
+    backups, published = {}, []
+    keep_backups = False
+    try:
+        for _, destination in outputs:
+            preflight_output(destination)
+            backups[destination] = None
+            if destination.exists():
+                with tempfile.NamedTemporaryFile(dir=destination.parent, prefix=".iconlib-backup-", delete=False) as temp:
+                    backups[destination] = Path(temp.name)
+                shutil.copy2(destination, backups[destination])
+        try:
+            for temporary, destination in outputs:
+                os.replace(temporary, destination)
+                published.append(destination)
+        except OSError as exc:
+            for destination in reversed(published):
+                try:
+                    if backups[destination] is None:
+                        destination.unlink()
+                    else:
+                        os.replace(backups[destination], destination)
+                except OSError as rollback_exc:
+                    keep_backups = True
+                    recovery = ", ".join(str(p) for p in backups.values() if p is not None and p.exists())
+                    fail(f"output publication failed ({exc}); rollback failed ({rollback_exc}); retained backups: {recovery}")
+            fail(f"output publication failed; previous outputs restored: {exc}")
+    finally:
+        if not keep_backups:
+            for backup in backups.values():
+                if backup is not None:
+                    backup.unlink(missing_ok=True)
+
+
+def build(manifest_path, source_dir, archive_path, descriptor_path, *, allow_test_fixture=False):
     manifest_path, source_dir = Path(manifest_path), Path(source_dir)
     if manifest_path.is_symlink() or not manifest_path.is_file():
         fail("manifest must be a regular non-symlink file")
@@ -357,11 +458,13 @@ def build(manifest_path, source_dir, archive_path, descriptor_path):
         limit = MAX_LICENSE if prefix == "licenses/" else MAX_SVG
         with source.open("rb") as stream:
             members[member] = bounded_read(stream, limit)
-    validate_manifest(manifest, {k: v for k, v in members.items() if k != "manifest.json"})
+    validate_manifest(manifest, {k: v for k, v in members.items() if k != "manifest.json"}, allow_test_fixture=allow_test_fixture)
     archive_path, descriptor_path = Path(archive_path), Path(descriptor_path)
     protected = {Path(manifest_path).resolve(), *(source_member(source_dir, p).resolve() for p in members if p != "manifest.json")}
     if archive_path.resolve() == descriptor_path.resolve() or archive_path.resolve() in protected or descriptor_path.resolve() in protected:
         fail("output paths must not overwrite inputs or each other")
+    preflight_output(archive_path)
+    preflight_output(descriptor_path)
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor_path.parent.mkdir(parents=True, exist_ok=True)
     temp_archive = temp_descriptor = None
@@ -373,14 +476,11 @@ def build(manifest_path, source_dir, archive_path, descriptor_path):
                 archive.writestr(zip_info(name), members[name], compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
         if temp_archive.stat().st_size > MAX_ARCHIVE:
             fail("built archive exceeds compressed byte limit")
-        descriptor = descriptor_for(temp_archive)
+        descriptor = descriptor_for(temp_archive, allow_test_fixture=allow_test_fixture)
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=descriptor_path.parent, prefix=".iconlib-", suffix=".json", delete=False) as temp:
             temp_descriptor = Path(temp.name)
             temp.write(json.dumps(descriptor, sort_keys=True, indent=2) + "\n")
-        os.replace(temp_archive, archive_path)
-        temp_archive = None
-        os.replace(temp_descriptor, descriptor_path)
-        temp_descriptor = None
+        publish_outputs(((temp_archive, archive_path), (temp_descriptor, descriptor_path)))
         return descriptor
     finally:
         for temporary in (temp_archive, temp_descriptor):
@@ -399,9 +499,11 @@ def main(argv=None):
     v = sub.add_parser("validate")
     v.add_argument("archive", type=Path)
     v.add_argument("--trusted-descriptor", type=Path, required=True)
+    for command_parser in (b, v):
+        command_parser.add_argument("--allow-test-fixture", action="store_true", help="test only: allow synthetic-test fixture revision labels")
     args = parser.parse_args(argv)
     try:
-        result = build(args.manifest, args.source_dir, args.archive, args.descriptor) if args.command == "build" else validate_trusted(args.archive, args.trusted_descriptor)
+        result = build(args.manifest, args.source_dir, args.archive, args.descriptor, allow_test_fixture=args.allow_test_fixture) if args.command == "build" else validate_trusted(args.archive, args.trusted_descriptor, allow_test_fixture=args.allow_test_fixture)
         print(json.dumps(result, sort_keys=True, indent=2))
     except (PackageError, OSError, zipfile.LargeZipFile) as exc:
         print(f"error: {exc}", file=sys.stderr)
