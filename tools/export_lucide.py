@@ -134,7 +134,13 @@ def export(source, output):
         import shutil
         shutil.rmtree(output)
         raise
-    return {"icons": len(icons), "upstream_revision": UPSTREAM_COMMIT, "conversion_revision": revision, "output": str(output)}
+    return {
+        "icons": len(icons),
+        "upstream_revision": UPSTREAM_REVISION,
+        "source_snapshot_revision": UPSTREAM_COMMIT,
+        "conversion_revision": revision,
+        "output": str(output),
+    }
 
 
 def main():
