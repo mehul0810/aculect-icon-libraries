@@ -61,6 +61,69 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(first["package_bytes"], len(first_bytes))
         self.assertEqual(first["package_sha256"], digest(first_bytes))
 
+    def test_versioned_fixture_build_and_update_policy(self):
+        output = self.root / "versioned"
+        denied = subprocess.run(
+            [sys.executable, str(sys_path / "build_versioned_fixtures.py"), str(output)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(denied.returncode, 2)
+        self.assertIn("--allow-test-fixtures is required", denied.stderr)
+        result = subprocess.run(
+            [sys.executable, str(sys_path / "build_versioned_fixtures.py"), str(output), "--allow-test-fixtures"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifests, descriptors = {}, {}
+        for name in ("outline-1.0.0", "outline-1.1.0", "solid-1.0.0"):
+            package = output / f"{name}.zip"
+            descriptor_path = output / f"{name}.descriptor.json"
+            descriptors[name] = json.loads(descriptor_path.read_text())
+            manifests[name] = iconlib.read_archive(package, allow_test_fixture=True)[1]
+            iconlib.validate_trusted(package, descriptor_path, allow_test_fixture=True)
+        first_hashes = {name: item["package_sha256"] for name, item in descriptors.items()}
+        rerun = subprocess.run(
+            [sys.executable, str(sys_path / "build_versioned_fixtures.py"), str(output), "--allow-test-fixtures"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(rerun.returncode, 0, rerun.stderr)
+        self.assertEqual({name: json.loads((output / f"{name}.descriptor.json").read_text())["package_sha256"] for name in first_hashes}, first_hashes)
+        old, new = manifests["outline-1.0.0"], manifests["outline-1.1.0"]
+        self.assertEqual((old["library_id"], old["style_id"], old["release_version"]), ("synthetic-test", "outline", "1.0.0"))
+        self.assertEqual((new["library_id"], new["style_id"], new["release_version"]), ("synthetic-test", "outline", "1.1.0"))
+        self.assertEqual(manifests["solid-1.0.0"]["style_id"], "solid")
+        self.assertNotEqual(descriptors["outline-1.0.0"]["package_sha256"], descriptors["outline-1.1.0"]["package_sha256"])
+        retained = iconlib.check_update(old, descriptors["outline-1.0.0"]["package_sha256"], new, descriptors["outline-1.1.0"]["package_sha256"])
+        self.assertEqual(retained, ["new-mark", "retired-mark", "test-square"])
+        iconlib.validate_library_styles((new, manifests["solid-1.0.0"]))
+        colliding_style = json.loads(json.dumps(manifests["solid-1.0.0"]))
+        colliding_style["icons"][0]["core_icon_name"] = "test-square"
+        with self.assertRaisesRegex(iconlib.PackageError, "cross-style core_icon_name collision"):
+            iconlib.validate_library_styles((new, colliding_style))
+
+    def test_version_policy_rejects_digest_reuse_and_downgrade(self):
+        manifest = json.loads((FIXTURE / "manifest.json").read_text())
+        digest_1, digest_2 = "1" * 64, "2" * 64
+        with self.assertRaisesRegex(iconlib.PackageError, "same release_version"):
+            iconlib.check_update(manifest, digest_1, manifest, digest_2)
+        older = json.loads(json.dumps(manifest))
+        older["release_version"] = "0.9.9"
+        newer = json.loads(json.dumps(manifest))
+        newer["release_version"] = "1.0.0-rc.1"
+        with self.assertRaisesRegex(iconlib.PackageError, "downgrade"):
+            iconlib.check_update(manifest, digest_1, newer, digest_1)
+        with self.assertRaisesRegex(iconlib.PackageError, "downgrade"):
+            iconlib.check_update(manifest, digest_1, older, digest_1)
+        renamed = json.loads(json.dumps(manifest))
+        renamed["release_version"] = "1.1.0"
+        renamed["icons"][0]["core_icon_name"] = "changed-saved-name"
+        with self.assertRaisesRegex(iconlib.PackageError, "cannot change"):
+            iconlib.check_update(manifest, digest_1, renamed, digest_2)
+        self.assertLess(iconlib.version_key("1.0.0-alpha.1"), iconlib.version_key("1.0.0-alpha.beta"))
+        self.assertLess(iconlib.version_key("1.0.0-rc.1"), iconlib.version_key("1.0.0"))
+        with self.assertRaisesRegex(iconlib.PackageError, "invalid release_version"):
+            iconlib.version_key("1.0.0-alpha..beta")
+
     def test_caller_supplied_trust_descriptor_required(self):
         self.build()
         iconlib.validate_trusted(self.archive, self.descriptor, allow_test_fixture=True)
@@ -178,6 +241,7 @@ class PackageTests(unittest.TestCase):
         member_data = {
             "licenses/LICENSE.txt": (FIXTURE / "licenses/LICENSE.txt").read_bytes(),
             "icons/test-square.svg": (FIXTURE / "icons/test-square.svg").read_bytes(),
+            "icons/retired-mark.svg": (FIXTURE / "icons/retired-mark.svg").read_bytes(),
             "icons/second.svg": (FIXTURE / "icons/test-square.svg").read_bytes(),
         }
         with self.assertRaisesRegex(iconlib.PackageError, "duplicate core_icon_name"):

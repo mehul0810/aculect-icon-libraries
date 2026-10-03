@@ -28,7 +28,7 @@ CHUNK = 64 * 1024
 ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 REVISION_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
-VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
+VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$")
 SVG_NS = "http://www.w3.org/2000/svg"
 PATH_NUMBER_RE = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 PATH_ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "T": 2, "A": 7, "Z": 0}
@@ -44,6 +44,66 @@ def fail(message):
 
 def sha256(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def version_key(version):
+    """Return a SemVer ordering key for the supported numeric core and prerelease."""
+    match = VERSION_RE.fullmatch(version) if isinstance(version, str) else None
+    if not match:
+        fail("invalid release_version")
+    major, minor, patch, prerelease = match.groups()
+    if prerelease is None:
+        return (int(major), int(minor), int(patch), 1, ())
+    identifiers = []
+    for value in prerelease.split("."):
+        if value.isdigit():
+            if len(value) > 1 and value.startswith("0"):
+                fail("invalid release_version prerelease")
+            identifiers.append((0, int(value)))
+        else:
+            identifiers.append((1, value))
+    return (int(major), int(minor), int(patch), 0, tuple(identifiers))
+
+
+def check_update(previous_manifest, previous_sha256, candidate_manifest, candidate_sha256, retained_core_names=()):
+    """Validate an update and return the full saved-name set, including removals."""
+    for digest in (previous_sha256, candidate_sha256):
+        if not isinstance(digest, str) or not HEX_RE.fullmatch(digest):
+            fail("package digest must be SHA-256")
+    identity = (previous_manifest.get("library_id"), previous_manifest.get("style_id"))
+    candidate_identity = (candidate_manifest.get("library_id"), candidate_manifest.get("style_id"))
+    if identity != candidate_identity:
+        fail("update library/style identity mismatch")
+    old_key = version_key(previous_manifest.get("release_version"))
+    new_key = version_key(candidate_manifest.get("release_version"))
+    if new_key < old_key:
+        fail("release_version downgrade rejected")
+    if new_key == old_key and previous_sha256 != candidate_sha256:
+        fail("same release_version cannot identify different package bytes")
+    previous_by_id = {icon["id"]: icon["core_icon_name"] for icon in previous_manifest["icons"]}
+    candidate_by_id = {icon["id"]: icon["core_icon_name"] for icon in candidate_manifest["icons"]}
+    if any(candidate_by_id.get(icon_id, name) != name for icon_id, name in previous_by_id.items()):
+        fail("core_icon_name cannot change for an existing icon id")
+    prior_names = {icon["core_icon_name"] for icon in previous_manifest["icons"]}
+    candidate_names = {icon["core_icon_name"] for icon in candidate_manifest["icons"]}
+    return sorted(set(retained_core_names) | prior_names | candidate_names)
+
+
+def validate_library_styles(manifests):
+    """Check identities across styles where saved names are prefixed by library only."""
+    seen, styles = {}, set()
+    for manifest in manifests:
+        library_id = manifest.get("library_id")
+        style_id = manifest.get("style_id")
+        if (library_id, style_id) in styles:
+            fail(f"duplicate library/style package: {library_id}/{style_id}")
+        styles.add((library_id, style_id))
+        for icon in manifest.get("icons", []):
+            name = icon.get("core_icon_name")
+            key = (library_id, name)
+            if key in seen:
+                fail(f"cross-style core_icon_name collision: {library_id}/{name} ({seen[key]}, {style_id})")
+            seen[key] = style_id
 
 
 def bounded_read(stream, limit):

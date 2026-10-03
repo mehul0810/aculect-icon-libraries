@@ -8,6 +8,8 @@ Potential runtime constraints are recorded separately in [runtime-contract.md](d
 
 The standard-library-only builder is `tools/iconlib.py` and requires Python 3.9 or newer. Run checks with `python3 -m unittest discover -s tests -v`. Build with `python3 tools/iconlib.py build MANIFEST SOURCE_DIR PACKAGE.zip DESCRIPTOR.json`, then validate with `python3 tools/iconlib.py validate PACKAGE.zip --trusted-descriptor DESCRIPTOR.json`.
 
+Per-style version identity and update rules are documented in [update-policy.md](docs/update-policy.md). To reproduce the synthetic `1.0.0` to `1.1.0` update and second-style packages, run `python3 tools/build_versioned_fixtures.py /tmp/iconlib-fixtures --allow-test-fixtures`. The explicit opt-in is required; these packages are test-only and do not populate the production catalog.
+
 Synthetic fixture revision labels are rejected by default, even with a matching trusted descriptor. For test-only fixture builds, explicitly pass `--allow-test-fixture` to both commands:
 
 ```sh

@@ -2,14 +2,14 @@
   "schema_version": 1,
   "library_id": "synthetic-test",
   "style_id": "outline",
-  "release_version": "1.0.0",
+  "release_version": "1.1.0",
   "test_fixture": true,
   "upstream": {"name": "Synthetic test geometry (not upstream artwork)", "revision": "synthetic-test:source-only"},
   "conversion": {"tool": "fixture-writer", "revision": "synthetic-test:conversion-only"},
   "fixture_notice": "SPDX-License-Identifier: GPL-2.0-or-later; synthetic test data only",
   "license": {"path": "licenses/LICENSE.txt", "sha256": "2d34244c78165f9cf831ee44c5464677fc22315aedda99721da893d8c682c028"},
   "icons": [
-    {"id": "test-square", "core_icon_name": "test-square", "label": "Synthetic test square", "keywords": ["test", "square"], "path": "icons/test-square.svg", "sha256": "403ff4c91f0363a0383d95d3062a312e10b996bc275143e2c7c300a4966bb87b"},
-    {"id": "retired-mark", "core_icon_name": "retired-mark", "label": "Synthetic retired mark", "keywords": ["test", "retired"], "path": "icons/retired-mark.svg", "sha256": "82e4886f98d6280e04920db0c0df7b0703720edb0ed4fff9906159f33223ac1d"}
+    {"id": "test-square", "core_icon_name": "test-square", "label": "Synthetic test square", "keywords": ["test", "square"], "path": "icons/test-square.svg", "sha256": "dcdc6ac020ad436a72ac4f22b29184f08363774d425e7cf60f0962c4eb53a993"},
+    {"id": "new-mark", "core_icon_name": "new-mark", "label": "Synthetic new mark", "keywords": ["test", "new"], "path": "icons/new-mark.svg", "sha256": "1400e0af95791642ede2be75d41b3346fd609e8406e9cad860a060641320d6a4"}
   ]
 }
