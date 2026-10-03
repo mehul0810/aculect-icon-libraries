@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "library_id": "synthetic-test",
+  "style_id": "outline",
+  "release_version": "1.0.0",
+  "upstream": {"name": "Synthetic test geometry (not upstream artwork)", "revision": "synthetic-test-revision-0001"},
+  "conversion": {"tool": "fixture-writer", "revision": "synthetic-conversion-revision-0001"},
+  "fixture_notice": "SPDX-License-Identifier: GPL-2.0-or-later; synthetic test data only",
+  "license": {"path": "licenses/LICENSE.txt", "sha256": "408f3e39ac11488bd13a8d89eccb6b46a21eb84e0766f967ccde9c7e5947bea0"},
+  "icons": [
+    {"id": "test-square", "core_icon_name": "test-square", "label": "Synthetic test square", "keywords": ["test", "square"], "path": "icons/test-square.svg", "sha256": "403ff4c91f0363a0383d95d3062a312e10b996bc275143e2c7c300a4966bb87b"}
+  ]
+}

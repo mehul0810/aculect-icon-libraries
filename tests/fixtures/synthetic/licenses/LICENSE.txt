@@ -1,0 +1,1 @@
+Synthetic test fixture only. Original geometric test data; not third-party artwork.
