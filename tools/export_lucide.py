@@ -49,6 +49,25 @@ def normalize_svg(raw, slug):
     return ET.tostring(out_root, encoding="utf-8", xml_declaration=False)
 
 
+def committed_exporter_revision(exporter_path=None):
+    exporter_path = Path(exporter_path or __file__).resolve(strict=True)
+    repo_root = exporter_path.parent.parent
+    relative_path = exporter_path.relative_to(repo_root).as_posix()
+    if relative_path != "tools/export_lucide.py":
+        raise ValueError("unexpected exporter path")
+    revision = subprocess.check_output(
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True
+    ).strip()
+    if len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
+        raise ValueError("exporter revision is not an immutable Git commit")
+    committed_bytes = subprocess.check_output(
+        ["git", "-C", str(repo_root), "show", f"{revision}:{relative_path}"]
+    )
+    if exporter_path.read_bytes() != committed_bytes:
+        raise ValueError("exporter bytes differ from the recorded Git commit")
+    return revision
+
+
 def export(source, output):
     source = Path(source)
     if source.is_symlink():
@@ -82,12 +101,7 @@ def export(source, output):
     if len(by_slug) != EXPECTED_ICONS or {path.stem for path in filenames} != set(by_slug):
         raise ValueError("pinned asset and manifest icon identities differ")
 
-    exporter_root = Path(__file__).resolve().parent.parent
-    revision = subprocess.check_output(
-        ["git", "-C", str(exporter_root), "rev-parse", "HEAD"], text=True
-    ).strip()
-    if len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
-        raise ValueError("exporter revision is not an immutable Git commit")
+    revision = committed_exporter_revision()
 
     output.mkdir(parents=True)
     (output / "icons").mkdir()

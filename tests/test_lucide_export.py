@@ -1,7 +1,10 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from xml.etree import ElementTree as ET
 
-from tools.export_lucide import SVG_NS, normalize_svg
+from tools.export_lucide import SVG_NS, committed_exporter_revision, normalize_svg
 
 
 class LucideExportTest(unittest.TestCase):
@@ -27,6 +30,23 @@ class LucideExportTest(unittest.TestCase):
         for source in cases:
             with self.subTest(source=source), self.assertRaises(ValueError):
                 normalize_svg(source.encode(), "unsupported-mark")
+
+    def test_converter_revision_rejects_dirty_exporter_bytes(self):
+        with TemporaryDirectory() as temp:
+            exporter = Path(temp) / "tools/export_lucide.py"
+            exporter.parent.mkdir()
+            exporter.write_bytes(b"working-tree version")
+            with patch("tools.export_lucide.subprocess.check_output", side_effect=["a" * 40, b"committed version"]):
+                with self.assertRaisesRegex(ValueError, "differ from the recorded Git commit"):
+                    committed_exporter_revision(exporter)
+
+    def test_converter_revision_accepts_exact_committed_bytes(self):
+        with TemporaryDirectory() as temp:
+            exporter = Path(temp) / "tools/export_lucide.py"
+            exporter.parent.mkdir()
+            exporter.write_bytes(b"committed version")
+            with patch("tools.export_lucide.subprocess.check_output", side_effect=["b" * 40, b"committed version"]):
+                self.assertEqual(committed_exporter_revision(exporter), "b" * 40)
 
 
 if __name__ == "__main__":

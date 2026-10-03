@@ -10,13 +10,13 @@ This is a local, data-only interop candidate. It is not a production catalog ent
 - Combined ISC and MIT license-notice SHA-256: `b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57`.
 - Expected outline count: 1,848, with no exclusions.
 
-The exporter validates both pinned file hashes, each of the 1,848 source asset hashes against the pinned manifest, the complete asset/name set, and the exact `lucide/<slug>-outline` Core identity mapping. Package `core_icon_name` retains `<slug>-outline`; `source_icon_id` retains `lucide/outline/<slug>` for traceability.
+The exporter validates both pinned file hashes, each of the 1,848 source asset hashes against the pinned manifest, the complete asset/name set, and the exact `lucide/<slug>-outline` Core identity mapping. Package `core_icon_name` retains `<slug>-outline`; `source_icon_id` retains `lucide/outline/<slug>` for traceability. It carries the supported label and keyword metadata; source categories are intentionally omitted because format v1 has no category field.
 
 ## Conversion Boundary
 
 The pinned snapshot contains only an SVG root with a `viewBox` and path children with `d` plus `fill="currentColor"`. The exporter preserves the `viewBox`, every path in order, and each `d` string byte-for-byte as XML attribute content. It removes only `fill="currentColor"`: package records carry geometry, not color styling, and the consuming renderer owns icon color. This intentionally does not preserve an SVG's external CSS `color` inheritance behavior. Any additional root/path attribute, non-path element, nested content, or different fill value fails the export. No `clip-rule` appears in the pinned set; the exporter does not normalize it.
 
-The package version begins at `1.0.0`, independently of upstream `1.47.0`. `conversion.revision` is the exact Git commit containing this exporter. Keep the exporter unchanged after recording that revision; any conversion change requires a new commit and rebuilt candidate.
+The package version begins at `1.0.0`, independently of upstream `1.47.0`. Before recording `conversion.revision`, the exporter verifies that its exact bytes match the file at `HEAD`; unrelated working-tree changes do not affect this check. Any exporter change requires a new commit and rebuilt candidate.
 
 ## Reproduction
 
