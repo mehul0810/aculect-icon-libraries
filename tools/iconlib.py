@@ -27,7 +27,6 @@ HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 REVISION_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
 SVG_NS = "http://www.w3.org/2000/svg"
-SVG_TAGS = {f"{{{SVG_NS}}}svg", f"{{{SVG_NS}}}path"}
 
 
 class PackageError(ValueError):
@@ -131,7 +130,7 @@ def validate_svg(data):
             fail("invalid SVG dimensions")
     count = 0
     for elem in root.iter():
-        if elem.tag not in SVG_TAGS or elem.attrib.get("id"):
+        if (elem is root and elem.tag != f"{{{SVG_NS}}}svg") or (elem is not root and elem.tag != f"{{{SVG_NS}}}path") or elem.attrib.get("id"):
             fail("only id-less SVG path geometry is supported")
         if elem is root:
             if list(root).count(elem):
@@ -228,6 +227,8 @@ def read_archive(path):
             fail("too many archive entries")
         exact, folded, sizes = set(), set(), 0
         for info in infos:
+            if info.orig_filename != info.filename:
+                fail("ZIP member name contains NUL truncation")
             name = info.filename
             validate_path(name, "")
             if name in exact or name.casefold() in folded:

@@ -109,12 +109,24 @@ class PackageTests(unittest.TestCase):
             base.replace(b"<path", b'<path href="https://example.invalid/x"'),
             base.replace(b"<path", b'<path style="fill:url(#x)"'),
             base.replace(b" viewBox=", b' fill="url(https://example.invalid/paint.svg#p)" viewBox='),
+            b'<svg xmlns="http://www.w3.org/2000/svg"><svg d="M0 0h1v1z"/></svg>',
             b'<!DOCTYPE svg [<!ENTITY x "boom">]><svg xmlns="http://www.w3.org/2000/svg"><path d="&x;"/></svg>'.decode("utf-8").encode("utf-16le"),
             b'<?xml-stylesheet href="https://example.invalid/a.css"?><svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>'.decode("utf-8").encode("utf-16le"),
         ]:
             with self.subTest(svg=unsafe[:60]):
                 with self.assertRaises(iconlib.PackageError):
                     iconlib.validate_svg(unsafe)
+
+    def test_zip_member_name_nul_truncation_is_rejected(self):
+        members = self.fixture_members()
+        members[-1] = (members[-1][0] + "X", members[-1][1], members[-1][2])
+        self.repack(members)
+        package = self.archive.read_bytes()
+        old_name = b"icons/test-square.svgX"
+        self.assertEqual(package.count(old_name), 2)
+        self.archive.write_bytes(package.replace(old_name, b"icons/test-square.svg\x00"))
+        with self.assertRaisesRegex(iconlib.PackageError, "NUL truncation"):
+            iconlib.read_archive(self.archive)
 
     def test_license_php_path_rejected_by_builder_and_archive(self):
         manifest = json.loads((FIXTURE / "manifest.json").read_text())
