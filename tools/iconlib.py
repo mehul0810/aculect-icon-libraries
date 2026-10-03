@@ -9,20 +9,22 @@ import os
 import re
 import stat
 import sys
+import tempfile
 import zipfile
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from xml.etree import ElementTree as ET
 
 MAX_ARCHIVE = 32 * 1024 * 1024
-MAX_MEMBER = 2 * 1024 * 1024
-MAX_TOTAL = 128 * 1024 * 1024
 MAX_MANIFEST = 8 * 1024 * 1024
+MAX_DESCRIPTOR = 64 * 1024
 MAX_LICENSE = 128 * 1024
 MAX_SVG = 64 * 1024
+MAX_TOTAL = 128 * 1024 * 1024
 MAX_ICONS = 10000
 CHUNK = 64 * 1024
 ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+REVISION_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
 SVG_NS = "http://www.w3.org/2000/svg"
 SVG_TAGS = {f"{{{SVG_NS}}}svg", f"{{{SVG_NS}}}path"}
@@ -54,9 +56,17 @@ def bounded_read(stream, limit):
 
 
 def parse_json(data, label):
+    def reject_duplicates(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON key: {key}")
+            result[key] = value
+        return result
+
     try:
-        return json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return json.loads(data.decode("utf-8"), object_pairs_hook=reject_duplicates)
+    except (UnicodeDecodeError, ValueError) as exc:
         fail(f"{label} is not valid UTF-8 JSON: {exc}")
 
 
@@ -69,10 +79,9 @@ def validate_path(value, prefix):
     if not isinstance(value, str) or "\\" in value or value.startswith("/"):
         fail("invalid package path")
     parts = value.split("/")
-    path = PurePosixPath(value)
-    if not path.parts or any(part in ("", ".", "..") for part in parts):
+    if not value or any(part in ("", ".", "..") for part in parts):
         fail("invalid package path")
-    if not value.isascii() or any(not re.fullmatch(r"[A-Za-z0-9._-]+", part) for part in path.parts):
+    if not value.isascii() or any(not re.fullmatch(r"[A-Za-z0-9._-]+", part) for part in parts):
         fail("package paths must use ASCII-safe components")
     if not value.startswith(prefix) or value.endswith("/"):
         fail("package path outside allowed directory")
@@ -83,30 +92,43 @@ def validate_svg(data):
     if len(data) > MAX_SVG:
         fail("SVG exceeds byte limit")
     try:
-        data.decode("utf-8")
+        text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         fail("SVG must be UTF-8")
-    if data.startswith(b"<?"):
-        decl_end = data.find(b"?>")
-        if decl_end < 0 or not data[:decl_end + 2].lower().startswith(b"<?xml"):
-            fail("processing instructions are forbidden")
-        remainder = data[decl_end + 2:]
+    if "\x00" in text or any(ord(char) < 32 and char not in "\t\r\n" for char in text):
+        fail("SVG contains forbidden control characters")
+    declaration = re.match(r"^\s*<\?xml\s+([^?]*)\?>", text, re.IGNORECASE)
+    if declaration:
+        attrs = declaration.group(1)
+        encoding = re.search(r"\bencoding\s*=\s*(['\"])(.*?)\1", attrs, re.IGNORECASE)
+        if encoding and encoding.group(2).lower() not in ("utf-8", "utf8"):
+            fail("SVG XML declaration must specify UTF-8")
+        remainder = text[declaration.end():]
     else:
-        remainder = data
-    if b"<?" in remainder:
+        remainder = text
+    if "<?" in (remainder if declaration else text):
         fail("processing instructions are forbidden")
-    upper = data.upper()
-    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
+    upper = text.upper()
+    if "<!DOCTYPE" in upper or "<!ENTITY" in upper:
         fail("DTD and entity declarations are forbidden")
     try:
-        root = ET.fromstring(data)
+        root = ET.fromstring(text)
     except ET.ParseError as exc:
         fail(f"invalid SVG XML: {exc}")
     if root.tag != f"{{{SVG_NS}}}svg":
         fail("SVG root must use the SVG namespace")
-    allowed_root = {"viewBox", "width", "height", "fill", "fill-rule"}
+    allowed_root = {"viewBox", "width", "height"}
     if any(k not in allowed_root and k != "xmlns" for k in root.attrib):
         fail("unsupported SVG root attribute")
+    if "viewBox" in root.attrib:
+        values = root.attrib["viewBox"].replace(",", " ").split()
+        if len(values) != 4 or any(not re.fullmatch(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)", item) for item in values):
+            fail("invalid SVG viewBox")
+        if float(values[2]) <= 0 or float(values[3]) <= 0:
+            fail("SVG viewBox dimensions must be positive")
+    for dimension in ("width", "height"):
+        if dimension in root.attrib and not re.fullmatch(r"(?:\d+(?:\.\d*)?|\.\d+)(?:px)?", root.attrib[dimension]):
+            fail("invalid SVG dimensions")
     count = 0
     for elem in root.iter():
         if elem.tag not in SVG_TAGS or elem.attrib.get("id"):
@@ -138,35 +160,47 @@ def validate_manifest(manifest, member_data):
         if not isinstance(record, dict) or not all(isinstance(record.get(k), str) and record[k] for k in ("name" if field == "upstream" else "tool", "revision")):
             fail(f"invalid {field} identity")
         rev = record["revision"]
-        if rev.lower() in ("main", "master", "head", "latest", "develop") or len(rev) < 7:
+        synthetic = manifest.get("test_fixture") is True and manifest.get("library_id") == "synthetic-test"
+        if not (synthetic and rev.startswith("synthetic-test:")) and not REVISION_RE.fullmatch(rev):
             fail(f"{field} revision must be immutable")
     license_record = manifest.get("license")
     if not isinstance(license_record, dict):
         fail("license record required")
     license_path = validate_path(license_record.get("path"), "licenses/")
+    if not license_path.lower().endswith(".txt"):
+        fail("license member must use .txt extension")
     if not HEX_RE.fullmatch(str(license_record.get("sha256", ""))) or license_path not in member_data:
         fail("invalid or missing license member")
     if len(member_data[license_path]) > MAX_LICENSE:
         fail("license text exceeds byte limit")
     if sha256(member_data[license_path]) != license_record["sha256"]:
         fail("license hash mismatch")
-    if not member_data[license_path].strip():
+    try:
+        license_text = member_data[license_path].decode("utf-8")
+    except UnicodeDecodeError:
+        fail("license text must be UTF-8")
+    if not license_text.strip() or any(ord(char) < 32 and char not in "\t\r\n" for char in license_text):
         fail("license text cannot be empty")
     icons = manifest.get("icons")
     if not isinstance(icons, list) or not 1 <= len(icons) <= MAX_ICONS:
         fail("icon count outside limits")
-    ids, paths = set(), set()
+    ids, core_names, paths = set(), set(), set()
     for icon in icons:
         if not isinstance(icon, dict):
             fail("invalid icon record")
         for key in ("id", "core_icon_name"):
             validate_id(icon.get(key), key)
+        if icon["core_icon_name"] in core_names:
+            fail("duplicate core_icon_name")
+        core_names.add(icon["core_icon_name"])
         if not isinstance(icon.get("label"), str) or not icon["label"].strip() or len(icon["label"]) > 120:
             fail("invalid icon label")
         keywords = icon.get("keywords")
         if not isinstance(keywords, list) or any(not isinstance(k, str) or len(k) > 40 for k in keywords):
             fail("invalid icon keywords")
         path = validate_path(icon.get("path"), "icons/")
+        if not path.lower().endswith(".svg"):
+            fail("icon member must use .svg extension")
         digest = icon.get("sha256", "")
         if icon["id"] in ids or path in paths or not HEX_RE.fullmatch(str(digest)):
             fail("duplicate icon identity/path or invalid hash")
@@ -205,15 +239,29 @@ def read_archive(path):
                 fail("non-regular or executable ZIP member")
             if info.flag_bits & 0x1:
                 fail("encrypted ZIP members are not supported")
-            if info.file_size > MAX_MEMBER:
-                fail("ZIP member exceeds uncompressed byte limit")
+            if name == "manifest.json":
+                member_limit = MAX_MANIFEST
+            elif name.startswith("licenses/") and name.lower().endswith(".txt"):
+                member_limit = MAX_LICENSE
+            elif name.startswith("icons/") and name.lower().endswith(".svg"):
+                member_limit = MAX_SVG
+            else:
+                fail("unexpected package member type or path")
+            if info.file_size > member_limit:
+                fail("ZIP member exceeds type-specific byte limit")
             sizes += info.file_size
             if sizes > MAX_TOTAL:
                 fail("archive exceeds expanded byte limit")
         data = {}
         for info in infos:
+            if info.filename == "manifest.json":
+                member_limit = MAX_MANIFEST
+            elif info.filename.startswith("licenses/"):
+                member_limit = MAX_LICENSE
+            else:
+                member_limit = MAX_SVG
             with archive.open(info) as stream:
-                raw = bounded_read(stream, MAX_MEMBER)
+                raw = bounded_read(stream, member_limit)
             if len(raw) != info.file_size:
                 fail("ZIP entry size mismatch")
             data[info.filename] = raw
@@ -241,7 +289,9 @@ def descriptor_for(path):
 
 
 def validate_trusted(path, descriptor_path):
-    trusted = parse_json(descriptor_path.read_bytes(), "trusted descriptor")
+    with descriptor_path.open("rb") as stream:
+        descriptor_bytes = bounded_read(stream, MAX_DESCRIPTOR)
+    trusted = parse_json(descriptor_bytes, "trusted descriptor")
     if not isinstance(trusted, dict) or trusted.get("schema_version") != 1:
         fail("invalid trusted descriptor")
     actual = descriptor_for(path)
@@ -259,32 +309,82 @@ def zip_info(path):
     return info
 
 
+def source_member(root, member):
+    if root.is_symlink() or not root.is_dir():
+        fail("source directory must be a real directory")
+    base = root.resolve(strict=True)
+    candidate = root
+    for part in member.split("/"):
+        candidate = candidate / part
+        if candidate.is_symlink():
+            fail(f"symlink source path is not allowed: {member}")
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(base)
+    except (OSError, ValueError):
+        fail(f"source path escapes or is missing: {member}")
+    if not resolved.is_file():
+        fail(f"source path is not a regular file: {member}")
+    return resolved
+
+
 def build(manifest_path, source_dir, archive_path, descriptor_path):
+    manifest_path, source_dir = Path(manifest_path), Path(source_dir)
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        fail("manifest must be a regular non-symlink file")
     with manifest_path.open("rb") as stream:
         manifest_bytes = bounded_read(stream, MAX_MANIFEST)
     manifest = parse_json(manifest_bytes, "manifest")
+    if not isinstance(manifest, dict):
+        fail("manifest root must be an object")
+    license_record = manifest.get("license")
+    icons = manifest.get("icons")
+    if not isinstance(license_record, dict) or not isinstance(icons, list) or not 1 <= len(icons) <= MAX_ICONS:
+        fail("manifest requires a license object and icons array")
     members = {"manifest.json": manifest_bytes}
-    license_record = manifest.get("license", {})
     records = [(license_record, "licenses/")]
-    records += [(record, "icons/") for record in manifest.get("icons", []) if isinstance(record, dict)]
+    records += [(record, "icons/") for record in icons]
     for record, prefix in records:
+        if not isinstance(record, dict):
+            fail("invalid manifest file record")
         member = validate_path(record.get("path"), prefix)
-        source = source_dir / member
-        if not source.is_file() or source.is_symlink():
-            fail(f"missing or unsafe source file: {member}")
+        if prefix == "licenses/" and not member.lower().endswith(".txt"):
+            fail("license member must use .txt extension")
+        if prefix == "icons/" and not member.lower().endswith(".svg"):
+            fail("icon member must use .svg extension")
+        source = source_member(source_dir, member)
         limit = MAX_LICENSE if prefix == "licenses/" else MAX_SVG
         with source.open("rb") as stream:
             members[member] = bounded_read(stream, limit)
     validate_manifest(manifest, {k: v for k, v in members.items() if k != "manifest.json"})
+    archive_path, descriptor_path = Path(archive_path), Path(descriptor_path)
+    protected = {Path(manifest_path).resolve(), *(source_member(source_dir, p).resolve() for p in members if p != "manifest.json")}
+    if archive_path.resolve() == descriptor_path.resolve() or archive_path.resolve() in protected or descriptor_path.resolve() in protected:
+        fail("output paths must not overwrite inputs or each other")
     archive_path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-        for name in sorted(members):
-            archive.writestr(zip_info(name), members[name], compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
-    if archive_path.stat().st_size > MAX_ARCHIVE:
-        fail("built archive exceeds compressed byte limit")
-    descriptor = descriptor_for(archive_path)
-    descriptor_path.write_text(json.dumps(descriptor, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-    return descriptor
+    descriptor_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_archive = temp_descriptor = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=archive_path.parent, prefix=".iconlib-", suffix=".zip", delete=False) as temp:
+            temp_archive = Path(temp.name)
+        with zipfile.ZipFile(temp_archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+            for name in sorted(members):
+                archive.writestr(zip_info(name), members[name], compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+        if temp_archive.stat().st_size > MAX_ARCHIVE:
+            fail("built archive exceeds compressed byte limit")
+        descriptor = descriptor_for(temp_archive)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=descriptor_path.parent, prefix=".iconlib-", suffix=".json", delete=False) as temp:
+            temp_descriptor = Path(temp.name)
+            temp.write(json.dumps(descriptor, sort_keys=True, indent=2) + "\n")
+        os.replace(temp_archive, archive_path)
+        temp_archive = None
+        os.replace(temp_descriptor, descriptor_path)
+        temp_descriptor = None
+        return descriptor
+    finally:
+        for temporary in (temp_archive, temp_descriptor):
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
 
 def main(argv=None):

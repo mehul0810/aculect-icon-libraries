@@ -1,1 +1,2 @@
+SPDX-License-Identifier: GPL-2.0-or-later
 Synthetic test fixture only. Original geometric test data; not third-party artwork.
