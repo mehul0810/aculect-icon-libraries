@@ -94,8 +94,8 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(manifests["solid-1.0.0"]["style_id"], "solid")
         self.assertNotEqual(descriptors["outline-1.0.0"]["package_sha256"], descriptors["outline-1.1.0"]["package_sha256"])
         retained = iconlib.check_update(old, descriptors["outline-1.0.0"]["package_sha256"], new, descriptors["outline-1.1.0"]["package_sha256"])
-        self.assertEqual(retained, ["new-mark", "retired-mark", "test-square"])
-        iconlib.validate_library_styles((new, manifests["solid-1.0.0"]))
+        self.assertEqual(sorted(row["core_icon_name"] for row in retained), ["new-mark", "retired-mark", "test-square"])
+        iconlib.validate_library_styles((new, manifests["solid-1.0.0"]), retained)
         colliding_style = json.loads(json.dumps(manifests["solid-1.0.0"]))
         colliding_style["icons"][0]["core_icon_name"] = "test-square"
         with self.assertRaisesRegex(iconlib.PackageError, "cross-style core_icon_name collision"):
@@ -123,6 +123,40 @@ class PackageTests(unittest.TestCase):
         self.assertLess(iconlib.version_key("1.0.0-rc.1"), iconlib.version_key("1.0.0"))
         with self.assertRaisesRegex(iconlib.PackageError, "invalid release_version"):
             iconlib.version_key("1.0.0-alpha..beta")
+
+    def test_identity_ownership_survives_removal_and_multiple_updates(self):
+        original = json.loads((FIXTURE / "manifest.json").read_text())
+        removed = json.loads(json.dumps(original))
+        removed["release_version"] = "1.1.0"
+        removed["icons"] = removed["icons"][1:]
+        history = iconlib.check_update(original, "1" * 64, removed, "2" * 64)
+        restored = json.loads(json.dumps(original))
+        restored["release_version"] = "1.2.0"
+        self.assertEqual(history, iconlib.check_update(removed, "2" * 64, restored, "3" * 64, history))
+        for key, value in (("id", "unrelated-replacement"), ("core_icon_name", "renamed-square")):
+            candidate = json.loads(json.dumps(restored))
+            candidate["icons"][0][key] = value
+            with self.subTest(key=key), self.assertRaises(iconlib.PackageError):
+                iconlib.check_update(removed, "2" * 64, candidate, "3" * 64, history)
+        moved = json.loads(json.dumps(restored))
+        moved["style_id"] = "another-style"
+        moved["icons"] = moved["icons"][:1]
+        with self.assertRaises(iconlib.PackageError):
+            iconlib.validate_library_styles((removed, moved), history)
+
+    def test_update_rejects_reverse_identity_reassignment(self):
+        original = json.loads((FIXTURE / "manifest.json").read_text())
+        candidate = json.loads(json.dumps(original))
+        candidate["release_version"] = "1.1.0"
+        candidate["icons"][0]["id"] = "unrelated-replacement"
+        with self.assertRaisesRegex(iconlib.PackageError, "reassignment"):
+            iconlib.check_update(original, "1" * 64, candidate, "2" * 64)
+
+    def test_version_numeric_bounds_fail_cleanly(self):
+        for version in ("9" * 5000 + ".0.0", "1.0.0-" + "9" * 5000, "1000000000.0.0", "1.0.0-1000000000", "1.0.0+" + "x" * 60):
+            with self.subTest(length=len(version)), self.assertRaisesRegex(iconlib.PackageError, "invalid release_version"):
+                iconlib.version_key(version)
+        self.assertGreater(iconlib.version_key("999999999.0.0"), iconlib.version_key("1.0.0"))
 
     def test_caller_supplied_trust_descriptor_required(self):
         self.build()

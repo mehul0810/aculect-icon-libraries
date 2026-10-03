@@ -48,16 +48,18 @@ def sha256(data):
 
 def version_key(version):
     """Return a SemVer ordering key for the supported numeric core and prerelease."""
-    match = VERSION_RE.fullmatch(version) if isinstance(version, str) else None
+    match = VERSION_RE.fullmatch(version) if isinstance(version, str) and len(version) <= 64 else None
     if not match:
         fail("invalid release_version")
     major, minor, patch, prerelease = match.groups()
+    if any(len(value) > 9 for value in (major, minor, patch)):
+        fail("invalid release_version numeric component")
     if prerelease is None:
         return (int(major), int(minor), int(patch), 1, ())
     identifiers = []
     for value in prerelease.split("."):
         if value.isdigit():
-            if len(value) > 1 and value.startswith("0"):
+            if len(value) > 9 or (len(value) > 1 and value.startswith("0")):
                 fail("invalid release_version prerelease")
             identifiers.append((0, int(value)))
         else:
@@ -65,8 +67,8 @@ def version_key(version):
     return (int(major), int(minor), int(patch), 0, tuple(identifiers))
 
 
-def check_update(previous_manifest, previous_sha256, candidate_manifest, candidate_sha256, retained_core_names=()):
-    """Validate an update and return the full saved-name set, including removals."""
+def check_update(previous_manifest, previous_sha256, candidate_manifest, candidate_sha256, historical_owners=()):
+    """Return persistent identity ownership, including records removed by an update."""
     for digest in (previous_sha256, candidate_sha256):
         if not isinstance(digest, str) or not HEX_RE.fullmatch(digest):
             fail("package digest must be SHA-256")
@@ -80,30 +82,43 @@ def check_update(previous_manifest, previous_sha256, candidate_manifest, candida
         fail("release_version downgrade rejected")
     if new_key == old_key and previous_sha256 != candidate_sha256:
         fail("same release_version cannot identify different package bytes")
-    previous_by_id = {icon["id"]: icon["core_icon_name"] for icon in previous_manifest["icons"]}
-    candidate_by_id = {icon["id"]: icon["core_icon_name"] for icon in candidate_manifest["icons"]}
-    if any(candidate_by_id.get(icon_id, name) != name for icon_id, name in previous_by_id.items()):
-        fail("core_icon_name cannot change for an existing icon id")
-    prior_names = {icon["core_icon_name"] for icon in previous_manifest["icons"]}
-    candidate_names = {icon["core_icon_name"] for icon in candidate_manifest["icons"]}
-    return sorted(set(retained_core_names) | prior_names | candidate_names)
+    history = validate_library_styles((previous_manifest,), historical_owners)
+    return validate_library_styles((candidate_manifest,), history)
 
 
-def validate_library_styles(manifests):
-    """Check identities across styles where saved names are prefixed by library only."""
-    seen, styles = {}, set()
+def validate_library_styles(manifests, historical_owners=()):
+    """Preserve both ID and saved-name ownership across styles and all old versions."""
+    by_id, by_name, styles = {}, {}, set()
+
+    def retain(record):
+        keys = ("library_id", "style_id", "id", "core_icon_name")
+        if not isinstance(record, dict) or any(not isinstance(record.get(key), str) or not ID_RE.fullmatch(record[key]) for key in keys):
+            fail("invalid historical icon ownership")
+        owner = {key: record[key] for key in keys}
+        id_key = (owner["library_id"], owner["id"])
+        name_key = (owner["library_id"], owner["core_icon_name"])
+        if id_key in by_id and by_id[id_key] != owner:
+            fail("icon id ownership cannot change its saved name or style")
+        if name_key in by_name and by_name[name_key] != owner:
+            fail("cross-style core_icon_name collision or saved-name reassignment")
+        by_id[id_key] = by_name[name_key] = owner
+
+    for record in historical_owners:
+        retain(record)
     for manifest in manifests:
         library_id = manifest.get("library_id")
         style_id = manifest.get("style_id")
         if (library_id, style_id) in styles:
             fail(f"duplicate library/style package: {library_id}/{style_id}")
         styles.add((library_id, style_id))
+        current_ids, current_names = set(), set()
         for icon in manifest.get("icons", []):
-            name = icon.get("core_icon_name")
-            key = (library_id, name)
-            if key in seen:
-                fail(f"cross-style core_icon_name collision: {library_id}/{name} ({seen[key]}, {style_id})")
-            seen[key] = style_id
+            if icon.get("id") in current_ids or icon.get("core_icon_name") in current_names:
+                fail("duplicate icon identity")
+            current_ids.add(icon.get("id"))
+            current_names.add(icon.get("core_icon_name"))
+            retain({"library_id": library_id, "style_id": style_id, "id": icon.get("id"), "core_icon_name": icon.get("core_icon_name")})
+    return sorted(by_id.values(), key=lambda owner: (owner["library_id"], owner["style_id"], owner["id"]))
 
 
 def bounded_read(stream, limit):
@@ -270,8 +285,7 @@ def validate_manifest(manifest, member_data, *, allow_test_fixture=False):
         fail("unsupported manifest schema")
     for field in ("library_id", "style_id"):
         validate_id(manifest.get(field), field)
-    if not isinstance(manifest.get("release_version"), str) or not VERSION_RE.fullmatch(manifest["release_version"]):
-        fail("invalid release_version")
+    version_key(manifest.get("release_version"))
     for field in ("upstream", "conversion"):
         record = manifest.get(field)
         if not isinstance(record, dict) or not all(isinstance(record.get(k), str) and record[k] for k in ("name" if field == "upstream" else "tool", "revision")):
