@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "collections": [
+    {
+      "library_id": "bootstrap-icons",
+      "snapshot_revision": "f2149de004d5213e9fc43ca92fde52a76b165686",
+      "manifest_sha256": "7bb50d05cac418596a7109ac35126453e859f1d48b152ea27c43d69594f70028",
+      "license_sha256": "0fb3e11bd57e896c5a512afd64864d28a37de45d19835016c87ca1ad19ead969",
+      "upstream_revision": "ce0e49dd063243118a115f17ad1fe1fe7576d552",
+      "styles": {
+        "default": 1404,
+        "filled": 669
+      }
+    },
+    {
+      "library_id": "font-awesome",
+      "snapshot_revision": "f2149de004d5213e9fc43ca92fde52a76b165686",
+      "manifest_sha256": "8b73f1c49a33f344ed6a43e54405dd84369bd16cf82c59c74fc4e24289a7fb0e",
+      "license_sha256": "20c6f40715a567c97b80f6944beb8bb325835cab47ea7dcab89ee3b8e077eced",
+      "upstream_revision": "14c65a3747d0f3b751f15831fc719236aea8729d",
+      "styles": {
+        "solid": 2001,
+        "regular": 273,
+        "brands": 609
+      }
+    },
+    {
+      "library_id": "heroicons",
+      "snapshot_revision": "f2149de004d5213e9fc43ca92fde52a76b165686",
+      "manifest_sha256": "3e07c668645daf1bc8e5240267e62325c78ac1ff1878beb9439516d2627e6af8",
+      "license_sha256": "60e0b68c0f35c078eef3a5d29419d0b03ff84ec1df9c3f9d6e39a519a5ae7985",
+      "upstream_revision": "0435d4ca364a608cc75e2f8683d374e55abbae26",
+      "styles": {
+        "solid": 324
+      }
+    },
+    {
+      "library_id": "iconoir",
+      "snapshot_revision": "da0fbc983143f59a8f834b370e26b58501e7f8a2",
+      "manifest_sha256": "1ae59f996692ab1681626c86227ac3d6150592adef8bf1d5b64eee7eefabbea9",
+      "license_sha256": "869b60da1ada5b896d1f285c3c24ca193d612e308d1710a77a58f2f572eb4fa2",
+      "upstream_revision": "d7dfa4d0341df0670bfed9fc24221c9d7ef2112e",
+      "styles": {
+        "solid": 210
+      }
+    },
+    {
+      "library_id": "ionicons",
+      "snapshot_revision": "c93c3b76fba237e5332d69ff5c836855609ce540",
+      "manifest_sha256": "440802292bdd354b4ce1b578e3b84b9792dc6c1908be28e6de760002653cd86e",
+      "license_sha256": "c89dabc60b2e4e1a04b33bd7010b5a56bb4725ffe8c00d793a5ae009fbbfebd8",
+      "upstream_revision": "a9d1b7e23d7b9dec29f2041897ab14b2cef55064",
+      "styles": {
+        "filled": 313,
+        "sharp": 284,
+        "outline": 14,
+        "brands": 68
+      }
+    },
+    {
+      "library_id": "material-icons",
+      "snapshot_revision": "f2149de004d5213e9fc43ca92fde52a76b165686",
+      "manifest_sha256": "7d43be38864b183d2cc7ff09f9db0d0ef9d78eefb99e1af3127b5da367a23297",
+      "license_sha256": "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd",
+      "upstream_revision": "27e9ef1dbeedc13d682fece4a58e1eda4cb0961a",
+      "styles": {
+        "filled": 1038
+      }
+    },
+    {
+      "library_id": "phosphor",
+      "snapshot_revision": "61920a0eccb38f0fc88bf0ace0f2d9be26143c34",
+      "manifest_sha256": "93272d5a2e339bddd2602baa13f0425a648c6f8637ef61b98e8d94d140d3a9d4",
+      "license_sha256": "b5b1f1da112d18ea2147decfd48ddc1bf2b5aeb6c265381579340e95b15a2bb2",
+      "upstream_revision": "d42782b2abe747d904b971ccab48b182a1455f86",
+      "styles": {
+        "regular": 1248,
+        "fill": 1239
+      }
+    },
+    {
+      "library_id": "radix",
+      "snapshot_revision": "f2149de004d5213e9fc43ca92fde52a76b165686",
+      "manifest_sha256": "80e4724b3674d6a79374b614b5f7fbb9009628339955b62a77c3e2f8fa142d09",
+      "license_sha256": "0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138",
+      "upstream_revision": "bde33b13aa5848555f5512ac12155930fb4beb7d",
+      "styles": {
+        "default": 299
+      }
+    },
+    {
+      "library_id": "rune",
+      "snapshot_revision": "f2149de004d5213e9fc43ca92fde52a76b165686",
+      "manifest_sha256": "365f368fe9e59aab3168df06edd85e66cf8898184a04647f436f3fb5d321c894",
+      "license_sha256": "3123b3568ce759aebc17238c410ecc7391ceab5aec7c4a2f871d213900310fba",
+      "upstream_revision": "f649e467d1bc9f272aae3f8daa329d4c924e7340",
+      "styles": {
+        "pixelated": 215
+      }
+    },
+    {
+      "library_id": "tabler-icons",
+      "snapshot_revision": "f2149de004d5213e9fc43ca92fde52a76b165686",
+      "manifest_sha256": "80315a6d7024191c27b906f03b1ca73a73aa5837bf2e6f6f95149a6c7ae70405",
+      "license_sha256": "b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db",
+      "upstream_revision": "87e7c390fb4ec332ccad0bde25160b233241eb8f",
+      "styles": {
+        "filled": 1012
+      }
+    }
+  ],
+  "fluent": {
+    "archive_url": "https://registry.npmjs.org/@fluentui/svg-icons/-/svg-icons-1.1.341.tgz",
+    "archive_sha256": "262ee509b6d1464ae4bcd3318ffbf9ecede78984b3fc05804e4bd025aed90b14",
+    "upstream_revision": "2e4da95009de778ae0f41ec6c17bc67c97f4dc56",
+    "license_sha256": "69bc45dc42b9acb96a69823adbc6ae538374e3c0bde169b855b32c48eaaef52f",
+    "notice_sha256": "2fb367a84df52c8b6f8401119708014b327f595554d41712d7407151c9ce73ef",
+    "styles": {
+      "filled-10": 4,
+      "filled-12": 205,
+      "filled-16": 1741,
+      "filled-20": 2860,
+      "filled-24": 2503,
+      "filled-28": 960,
+      "filled-32": 859,
+      "filled-48": 712,
+      "regular-10": 8,
+      "regular-12": 210,
+      "regular-16": 1708,
+      "regular-20": 2825,
+      "regular-24": 2471,
+      "regular-28": 960,
+      "regular-32": 850,
+      "regular-48": 712
+    }
+  }
+}
