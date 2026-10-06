@@ -1,6 +1,6 @@
 # Aculect Icon Libraries
 
-Versioned, data-only icon packages and build-time tooling for Aculect Icon Library. This repository is at foundation stage: the production catalog is empty, the package format is a draft, and no runtime importer or distribution workflow is implemented.
+Versioned, data-only icon packages and build-time tooling for Aculect Icon Library. The existing catalog records all 15 planned families, with 35 reviewed packs and independent licensed previews. Packages remain explicitly pending publication; Simple Icons and Keyline remain gated. See [the full catalog and CI preparation](docs/full-catalog.md) for exact scope, source pins, exclusions and approval boundaries.
 
 See [the draft format specification](docs/format-v1.md) and [open distribution review](docs/distribution-review.md). Main plugin integration is tracked in [issue #64](https://github.com/mehul0810/aculect-icon-library/issues/64); this repository foundation is tracked in [issue #1](https://github.com/mehul0810/aculect-icon-libraries/issues/1).
 
@@ -10,9 +10,9 @@ It first validates the full data pack against the caller's reviewed descriptor,
 then writes at most 12 static SVG samples and returns their SHA-256/byte count.
 It refuses an existing destination and leaves the source ZIP untouched. These
 sample pins belong in the existing catalog descriptor when publication is
-authorized. The production catalog remains empty and no releases were published.
+authorized. Preview data is committed separately from the full packs. No releases were published by this preparation.
 
-Potential runtime constraints are recorded separately in [runtime-contract.md](docs/runtime-contract.md); they are not implemented behavior.
+The foundation's runtime contract is recorded in [runtime-contract.md](docs/runtime-contract.md); the plugin's local release/1.2.0 branch now implements reviewed discovery, previews and installation. See the current [integration and distribution status](docs/full-catalog.md).
 
 The standard-library-only builder is `tools/iconlib.py` and requires Python 3.9 or newer. Run checks with `python3 -m unittest discover -s tests -v`. Build with `python3 tools/iconlib.py build MANIFEST SOURCE_DIR PACKAGE.zip DESCRIPTOR.json`, then validate with `python3 tools/iconlib.py validate PACKAGE.zip --trusted-descriptor DESCRIPTOR.json`.
 
