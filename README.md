@@ -1,6 +1,6 @@
 # Aculect Icon Libraries
 
-Versioned, data-only icon packages and build-time tooling for Aculect Icon Library. The existing catalog records all 15 planned families, with 35 reviewed packs and independent licensed previews. Packages remain explicitly pending publication; Simple Icons and Keyline remain gated. See [the full catalog and CI preparation](docs/full-catalog.md) for exact scope, source pins, exclusions and approval boundaries.
+Versioned, data-only icon packages and build-time tooling for Aculect Icon Library. The existing catalog records all 15 planned families, with 35 published, independently verified packs across 13 families and separate licensed previews. Simple Icons and Keyline remain gated. See [the full catalog and CI verification](docs/full-catalog.md) for exact scope, source pins, exclusions and distribution boundaries.
 
 See [the draft format specification](docs/format-v1.md) and [open distribution review](docs/distribution-review.md). Main plugin integration is tracked in [issue #64](https://github.com/mehul0810/aculect-icon-library/issues/64); this repository foundation is tracked in [issue #1](https://github.com/mehul0810/aculect-icon-libraries/issues/1).
 
@@ -10,7 +10,7 @@ It first validates the full data pack against the caller's reviewed descriptor,
 then writes at most 12 static SVG samples and returns their SHA-256/byte count.
 It refuses an existing destination and leaves the source ZIP untouched. These
 sample pins belong in the existing catalog descriptor when publication is
-authorized. Preview data is committed separately from the full packs. No releases were published by this preparation.
+authorized. Preview data is committed separately from the full packs. The 35 public releases contain the exact reviewed CI bytes and are marked available only after HTTPS hash, package and original-attribution verification.
 
 The foundation's runtime contract is recorded in [runtime-contract.md](docs/runtime-contract.md); the plugin's local release/1.2.0 branch now implements reviewed discovery, previews and installation. See the current [integration and distribution status](docs/full-catalog.md).
 

@@ -14,7 +14,10 @@ repeat = json.loads((second/"prepared-catalog.json").read_bytes())["libraries"]
 if actual != repeat: raise SystemExit("Build descriptors are not reproducible")
 if len(expected) != len(actual): raise SystemExit("Prepared/catalog pack counts differ")
 for pin,result in zip(expected,actual):
+    if pin.get("availability") not in ("available", "pending-publication"):
+        raise SystemExit("Invalid catalog publication status")
     for key,value in result.items():
+        if key == "availability": continue  # Publication never changes immutable build bytes.
         if pin.get(key) != value: raise SystemExit("Catalog pin differs: "+key)
     tag = pin["library_id"]+"-"+pin["style_id"]+"-"+pin["release_version"]
     for suffix in (".zip",".descriptor.json",".preview.json"):

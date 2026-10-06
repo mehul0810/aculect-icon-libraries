@@ -1,24 +1,24 @@
 # Distribution Review (Open)
 
-Current preparation status (2026-10-06): the owner authorized the existing
-repository's issue-backed catalog, bounded previews and read-only CI preparation.
-The catalog now records unpublished packs and explicit gates; it does not grant
-installation availability. No release assets were published by this work.
-The foundation discussion below is historical. Its empty-catalog gate has been
-superseded for this authorized repository preparation, while release publication
-and WordPress.org policy review remain separate decisions. The plugin's local
+Current distribution status (2026-10-06): the owner authorized publication of
+35 reviewed exact-version GitHub data releases and catalog installation wiring.
+All public archives, descriptors and licensed previews were independently
+HTTPS-verified before the entries were marked available. Simple Icons and
+Keyline remain noninstallable. The foundation discussion below is historical;
+its empty-catalog gate is superseded for this authorized GitHub distribution.
+WordPress.org policy acceptance remains unresolved. The plugin's
 `release/1.2.0` branch includes a pinned, consent-based data installer and preview
 flow. Passing its tests is not directory approval.
 
 Issue #1 tracks the initial data-library foundation. The main plugin's distribution/integration tracker is [issue #64](https://github.com/mehul0810/aculect-icon-library/issues/64).
 
-## Provisional option
+## Historical foundation proposal
 
 GitHub Releases with exact-version asset URLs and SHA-256 checksums are a candidate distribution mechanism only. Exact-version URLs are not inherently immutable; protection against replacement depends on release/repository policy and must be reviewed. A future plugin-shipped, reviewed catalog must anchor the expected checksum independently of the download source; a checksum fetched from the same mutable source as the package is not a trust anchor. No production package, release, hosting URL, or live catalog exists. Consumers must not resolve a moving `latest` URL. This repository does not currently implement a release workflow or consumer installer.
 
 ## WordPress.org clarification required
 
-Before choosing external distribution, confirm how plugin guidelines 7 (external service/offloading) and 8 (executable code) apply to downloadable icon data and package handling. No answer has been submitted or received. Keep the production catalog empty pending that review and owner approval.
+Before a WordPress.org release, confirm how plugin guidelines 7 (external service/offloading) and 8 (executable code) apply to downloadable icon data and package handling. No answer has been submitted or received. Owner-authorized GitHub publication does not establish directory acceptance.
 
 Unsent question draft:
 

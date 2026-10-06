@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Run strict format and converter tests
         run: python3 -m unittest discover -s tests -v
       - name: Build twice from immutable reviewed sources
@@ -28,6 +29,8 @@ jobs:
           python3 tools/size_fluent.py /tmp/aculect-first --revision "$fluent_revision"
           python3 tools/size_fluent.py /tmp/aculect-second --revision "$fluent_revision"
           python3 tools/check_catalog_build.py /tmp/aculect-first /tmp/aculect-second
+      - name: Verify every available public release and its original attribution
+        run: python3 tools/verify_releases.py data/catalog.json /tmp/aculect-public --receipt /tmp/aculect-public-verification.json
       - name: Retain prepared ZIPs, descriptors and samples for owner review
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

@@ -3,8 +3,9 @@
 The existing `data/catalog.json` is the sole catalog. It records all 15 families
 planned in Aculect Icon Library issues and established integration work. Thirty-five
 reviewed style/size packs across 13 families contain 38,720 icons. Each pack is
-currently `pending-publication`: bounded previews can be fetched independently,
-but no downloadable release asset has been approved or published by this change.
+now `available`: the owner authorized publication of the exact reviewed CI bytes,
+and all 35 public ZIPs, descriptors and licensed previews were independently
+verified over HTTPS before enabling installation. Bounded previews remain independent.
 Simple Icons and Keyline remain explicitly gated rather than install-ready.
 The catalog records the exact supported scope and exclusions for every family.
 
@@ -44,7 +45,7 @@ installation state and request metadata: one 16-style namespace exceeded the
 128 MiB SQLite fixture memory limit during cumulative installs. `size_fluent.py`
 repackages the earlier immutable reviewed export without altering SVG bytes or
 licenses. Its own committed revision is pinned independently. These are new,
-unpublished identities; existing released collections and saved content are not
+newly published identities; existing released collections and saved content are not
 migrated or removed. The family remains a single planning entry in the catalog.
 The older feasibility source revision was different; those earlier counts are
 not substituted for this exact official archive.
@@ -58,9 +59,18 @@ only bounded data from six immutable public plugin snapshots, then supplies that
 source tree to `build_catalog.py --plugin-source`. Source exclusion JSON uses the
 8 MiB metadata bound; artwork retains its 64 KiB limit. The CI fix for this source
 metadata boundary preserves the already reviewed package bytes and versions.
-It cannot create tags or publish releases. Artifacts are preparation evidence,
-not public install delivery. Approval to publish versioned release assets remains
-a separate owner decision after the CI artifacts have been verified.
+It cannot create tags or publish releases. Publication of these 35 assets was
+explicitly owner-authorized and used the verified artifact from CI run
+[37424046457](https://github.com/mehul0810/aculect-icon-libraries/actions/runs/37424046457)
+at `3917e5ed5b37bd4aa186aedba5e868beec4ed5a9`. Every release tag targets that exact
+reviewed source. Published assets are never replaced and tags must not move.
+GitHub repository immutability settings were not changed; independently shipped
+plugin pins fail closed if an asset is replaced. `verify_releases.py` checks all
+three public assets for every available entry, rebuilds samples and license text
+from each validated archive, and rejects other redirect hosts or oversized data.
+The read-only CI now reruns that check after each reproducible build. Publication
+status is separate from immutable build identity; changing availability cannot
+change accepted package, manifest or sample bytes.
 
 SHA-256 establishes byte integrity relative to the plugin-shipped trust anchors;
 it is not a publisher signature. Authenticity depends on the reviewed immutable
