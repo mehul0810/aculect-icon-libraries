@@ -4,6 +4,14 @@ Versioned, data-only icon packages and build-time tooling for Aculect Icon Libra
 
 See [the draft format specification](docs/format-v1.md) and [open distribution review](docs/distribution-review.md). Main plugin integration is tracked in [issue #64](https://github.com/mehul0810/aculect-icon-library/issues/64); this repository foundation is tracked in [issue #1](https://github.com/mehul0810/aculect-icon-libraries/issues/1).
 
+Local preview tooling now provides a separate, deterministic sample artifact:
+`python3 tools/build_preview.py PACKAGE.zip DESCRIPTOR.json RELEASE.preview.json`.
+It first validates the full data pack against the caller's reviewed descriptor,
+then writes at most 12 static SVG samples and returns their SHA-256/byte count.
+It refuses an existing destination and leaves the source ZIP untouched. These
+sample pins belong in the existing catalog descriptor when publication is
+authorized. The production catalog remains empty and no releases were published.
+
 Potential runtime constraints are recorded separately in [runtime-contract.md](docs/runtime-contract.md); they are not implemented behavior.
 
 The standard-library-only builder is `tools/iconlib.py` and requires Python 3.9 or newer. Run checks with `python3 -m unittest discover -s tests -v`. Build with `python3 tools/iconlib.py build MANIFEST SOURCE_DIR PACKAGE.zip DESCRIPTOR.json`, then validate with `python3 tools/iconlib.py validate PACKAGE.zip --trusted-descriptor DESCRIPTOR.json`.
