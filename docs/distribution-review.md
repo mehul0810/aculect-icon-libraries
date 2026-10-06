@@ -1,5 +1,15 @@
 # Distribution Review (Open)
 
+Current preparation status (2026-10-06): the owner authorized the existing
+repository's issue-backed catalog, bounded previews and read-only CI preparation.
+The catalog now records unpublished packs and explicit gates; it does not grant
+installation availability. No release assets were published by this work.
+The foundation discussion below is historical. Its empty-catalog gate has been
+superseded for this authorized repository preparation, while release publication
+and WordPress.org policy review remain separate decisions. The plugin's local
+`release/1.2.0` branch includes a pinned, consent-based data installer and preview
+flow. Passing its tests is not directory approval.
+
 Issue #1 tracks the initial data-library foundation. The main plugin's distribution/integration tracker is [issue #64](https://github.com/mehul0810/aculect-icon-library/issues/64).
 
 ## Provisional option

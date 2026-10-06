@@ -1,0 +1,33 @@
+name: Prepare reviewed icon packs
+on:
+  push:
+    branches: [main, feat/remote-library-packages]
+    paths: ['tools/**', 'tests/**', 'data/**', '.github/workflows/prepare-packs.yml']
+  pull_request:
+    paths: ['tools/**', 'tests/**', 'data/**', '.github/workflows/prepare-packs.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Run strict format and converter tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Build twice from immutable reviewed sources
+        run: |
+          revision="$(cat data/build-revision.txt)"
+          python3 tools/build_catalog.py /tmp/aculect-first --revision "$revision"
+          python3 tools/build_catalog.py /tmp/aculect-second --revision "$revision"
+          python3 tools/check_catalog_build.py /tmp/aculect-first /tmp/aculect-second
+      - name: Retain prepared ZIPs, descriptors and samples for owner review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reviewed-icon-packs
+          path: /tmp/aculect-first/
+          if-no-files-found: error
+          retention-days: 7
