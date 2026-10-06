@@ -24,6 +24,9 @@ jobs:
           python3 tools/fetch_sources.py /tmp/aculect-sources
           python3 tools/build_catalog.py /tmp/aculect-first --revision "$revision" --plugin-source /tmp/aculect-sources
           python3 tools/build_catalog.py /tmp/aculect-second --revision "$revision" --plugin-source /tmp/aculect-sources
+          fluent_revision="$(cat data/fluent-conversion-revision.txt)"
+          python3 tools/size_fluent.py /tmp/aculect-first --revision "$fluent_revision"
+          python3 tools/size_fluent.py /tmp/aculect-second --revision "$fluent_revision"
           python3 tools/check_catalog_build.py /tmp/aculect-first /tmp/aculect-second
       - name: Retain prepared ZIPs, descriptors and samples for owner review
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

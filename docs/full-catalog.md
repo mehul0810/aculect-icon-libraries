@@ -38,6 +38,14 @@ The original MIT LICENSE and complete NOTICE from that revision are included.
 There are 19,588 standard compatible Regular/Filled icons in 16 size/style packs;
 45 unsupported files are individually hash-bound in `fluent-exclusions.json`.
 945 localized files and Light/Color variants are outside the reviewed scope.
+Fluent uses eight size-specific collection namespaces (`fluent-ui-10` through
+`fluent-ui-48`), each with Regular/ Filled style packs. This bounds the per-library
+installation state and request metadata: one 16-style namespace exceeded the
+128 MiB SQLite fixture memory limit during cumulative installs. `size_fluent.py`
+repackages the earlier immutable reviewed export without altering SVG bytes or
+licenses. Its own committed revision is pinned independently. These are new,
+unpublished identities; existing released collections and saved content are not
+migrated or removed. The family remains a single planning entry in the catalog.
 The older feasibility source revision was different; those earlier counts are
 not substituted for this exact official archive.
 
