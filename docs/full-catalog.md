@@ -45,6 +45,11 @@ The read-only `prepare-packs.yml` workflow uses standard public GitHub-hosted
 runners, immutable action revisions, the system Python standard library and no
 secrets or software installations. It builds twice, verifies exact catalog pins,
 checks every archive and committed preview, then retains artifacts for seven days.
+Source fetching is separate from the frozen converter: `fetch_sources.py` copies
+only bounded data from six immutable public plugin snapshots, then supplies that
+source tree to `build_catalog.py --plugin-source`. Source exclusion JSON uses the
+8 MiB metadata bound; artwork retains its 64 KiB limit. The CI fix for this source
+metadata boundary preserves the already reviewed package bytes and versions.
 It cannot create tags or publish releases. Artifacts are preparation evidence,
 not public install delivery. Approval to publish versioned release assets remains
 a separate owner decision after the CI artifacts have been verified.
